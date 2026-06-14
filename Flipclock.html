@@ -1,0 +1,1270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Flip Clock</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --sidebar-w: 0px;
+    --pad: 30px;
+    --dur: 360ms;
+    --w: 100px; --h: 130px; --half: 65px;
+    --gap: 10px; --r: 10px; --fs: 136.5px;
+  }
+
+  html, body { width:100%; height:100%; overflow:hidden; }
+
+  body {
+    display: flex; align-items: center; justify-content: center;
+    background:
+      radial-gradient(ellipse at 20% 30%, #cfd8e6 0%, transparent 55%),
+      radial-gradient(ellipse at 80% 70%, #bbc6da 0%, transparent 55%),
+      linear-gradient(145deg, #d5dce8 0%, #c2ccdb 35%, #adb9cd 60%, #c6d0e0 82%, #d2dae6 100%);
+    font-family: 'Bebas Neue', sans-serif;
+  }
+  body::before {
+    content:''; position:fixed; inset:0; pointer-events:none;
+    background: linear-gradient(115deg, transparent 40%, rgba(255,255,255,.10) 50%, transparent 60%);
+    background-size: 250% 250%;
+    animation: shimmer 9s ease-in-out infinite alternate;
+  }
+  @keyframes shimmer { 0%{background-position:0% 0%} 100%{background-position:100% 100%} }
+
+  /* ══════════════════════════════════════════
+     VIEWS
+  ══════════════════════════════════════════ */
+  .view {
+    position: fixed;
+    top: 0; bottom: 0;
+    left: var(--sidebar-w);
+    right: 0;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    transition: left 320ms cubic-bezier(.4,0,.2,1);
+  }
+  .view.active { display: flex; }
+
+  /* ══════════════════════════════════════════
+     GENERAL TIME VIEW
+  ══════════════════════════════════════════ */
+  #view-time { justify-content: center; }
+
+  /* ══════════════════════════════════════════
+     STOPWATCH VIEW
+  ══════════════════════════════════════════ */
+  #view-stopwatch {
+    justify-content: flex-start;
+    padding-top: 70px;
+    overflow-y: auto;
+  }
+
+  /* ── Milliseconds bar ── */
+  .sw-ms {
+    font-size: clamp(12px, 2.2vw, 28px);
+    letter-spacing: .18em;
+    color: rgba(50, 68, 105, 0.38);
+    margin-top: clamp(6px, 1vw, 14px);
+  }
+
+  /* ── Controls ── */
+  .sw-controls {
+    display: flex;
+    gap: clamp(10px, 2vw, 22px);
+    margin-top: clamp(20px, 3.5vw, 42px);
+    align-items: center;
+  }
+
+  .sw-btn {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(11px, 1.4vw, 16px);
+    letter-spacing: .18em;
+    border: none; outline: none; cursor: pointer;
+    border-radius: clamp(8px, 1vw, 12px);
+    padding: clamp(10px, 1.4vw, 16px) clamp(18px, 2.5vw, 32px);
+    transition: opacity 160ms ease, transform 120ms ease;
+    text-transform: uppercase;
+  }
+  .sw-btn:hover  { opacity: .82; }
+  .sw-btn:active { transform: scale(.96); }
+
+  /* primary: Start / Pause */
+  .sw-btn-primary {
+    background: rgba(70, 95, 150, 0.18);
+    color: rgba(40, 58, 100, 0.85);
+    box-shadow: 0 2px 12px rgba(60, 80, 140, 0.10);
+  }
+  /* secondary: Reset / Stop */
+  .sw-btn-secondary {
+    background: rgba(40, 52, 85, 0.09);
+    color: rgba(50, 65, 105, 0.58);
+  }
+  /* accent: Lap / Split */
+  .sw-btn-accent {
+    background: rgba(100, 125, 190, 0.13);
+    color: rgba(45, 62, 110, 0.72);
+  }
+  .sw-btn:disabled { opacity: .28; cursor: default; transform: none; }
+
+  /* ── Lap / Split table ── */
+  .sw-table-wrap {
+    width: min(92%, 640px);
+    margin-top: clamp(18px, 3vw, 36px);
+    overflow-y: auto;
+    max-height: calc(100vh - 70px - var(--h) - 160px - 40px);
+  }
+
+  .sw-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .sw-table th, .sw-table td {
+    font-family: 'Bebas Neue', sans-serif;
+    letter-spacing: .12em;
+    text-align: left;
+    padding: 9px 14px;
+    border-bottom: 1px solid rgba(80, 100, 150, 0.1);
+  }
+  .sw-table th {
+    font-size: clamp(9px, 1.1vw, 13px);
+    color: rgba(70, 90, 140, 0.38);
+    text-transform: uppercase;
+  }
+  .sw-table td {
+    font-size: clamp(11px, 1.4vw, 16px);
+    color: rgba(40, 55, 90, 0.65);
+  }
+  .sw-table tr:last-child td { border-bottom: none; }
+  .sw-table .col-type  { width: 70px; }
+  .sw-table .col-num   { width: 50px; }
+  .sw-table .col-lap   { }
+  .sw-table .col-split { }
+  .sw-table td.highlight { color: rgba(40, 55, 90, 0.90); }
+
+  /* ══════════════════════════════════════════
+     COUNTDOWN VIEW
+  ══════════════════════════════════════════ */
+  #view-countdown {
+    justify-content: flex-start;
+    padding-top: 52px;
+    overflow-y: auto;
+    gap: 0;
+  }
+
+  /* ── Input panel (shown when stopped & unset) ── */
+  .cd-input-panel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: clamp(10px, 1.8vw, 20px);
+    margin-top: clamp(10px, 2vw, 24px);
+    width: 100%;
+  }
+
+  /* Quick presets */
+  .cd-presets {
+    display: flex;
+    gap: clamp(6px, 1.2vw, 14px);
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .cd-preset {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(11px, 1.3vw, 15px);
+    letter-spacing: .16em;
+    background: rgba(70, 95, 150, 0.11);
+    color: rgba(40, 58, 100, 0.72);
+    border: none; outline: none; cursor: pointer;
+    border-radius: clamp(6px, .8vw, 10px);
+    padding: clamp(7px, 1vw, 11px) clamp(12px, 1.6vw, 20px);
+    transition: background 150ms ease, transform 100ms ease;
+  }
+  .cd-preset:hover  { background: rgba(70, 95, 150, 0.20); }
+  .cd-preset:active { transform: scale(.95); }
+
+  /* Numpad-style time setter */
+  .cd-setter {
+    display: flex;
+    align-items: center;
+    gap: clamp(4px, .8vw, 10px);
+  }
+  .cd-field-group {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+  .cd-field-label {
+    font-size: clamp(8px, .9vw, 11px);
+    letter-spacing: .22em;
+    color: rgba(80,100,140,.38);
+    text-transform: uppercase;
+  }
+  .cd-spinners {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+  }
+  .cd-spin-btn {
+    background: none; border: none; outline: none; cursor: pointer;
+    color: rgba(70,90,140,.35);
+    font-size: clamp(10px, 1.2vw, 14px);
+    line-height: 1;
+    padding: 2px 6px;
+    border-radius: 4px;
+    transition: color 150ms ease, background 150ms ease;
+    font-family: 'Bebas Neue', sans-serif;
+    letter-spacing: .05em;
+  }
+  .cd-spin-btn:hover { color: rgba(50,70,120,.7); background: rgba(70,90,150,.08); }
+  .cd-field {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(20px, 3.5vw, 48px);
+    letter-spacing: .06em;
+    color: rgba(40, 55, 90, 0.75);
+    background: rgba(70, 90, 140, 0.07);
+    border: none; outline: none;
+    border-radius: clamp(6px, .8vw, 10px);
+    text-align: center;
+    width: clamp(44px, 7vw, 80px);
+    padding: clamp(4px, .6vw, 8px) 0;
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+  .cd-field::-webkit-inner-spin-button,
+  .cd-field::-webkit-outer-spin-button { -webkit-appearance: none; }
+  .cd-field:focus { background: rgba(70, 90, 140, 0.13); }
+  .cd-colon-sep {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(20px, 3vw, 42px);
+    color: rgba(80,100,150,.3);
+    padding-bottom: 4px;
+    align-self: center;
+    margin-top: 4px;
+  }
+
+  /* ── Progress ring ── */
+  .cd-ring-wrap {
+    position: relative;
+    margin-top: clamp(8px, 1.4vw, 18px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .cd-ring-svg {
+    transform: rotate(-90deg);
+    overflow: visible;
+  }
+  .cd-ring-bg {
+    fill: none;
+    stroke: rgba(80,105,160,.12);
+    stroke-width: 4;
+  }
+  .cd-ring-prog {
+    fill: none;
+    stroke: rgba(70,95,155,.32);
+    stroke-width: 4;
+    stroke-linecap: round;
+    transition: stroke-dashoffset 1s linear, stroke .4s ease;
+  }
+  .cd-ring-prog.warning { stroke: rgba(180,100,60,.45); }
+  .cd-ring-prog.done    { stroke: rgba(140,60,60,.4); }
+
+  /* ── Sub-second display (shown when < 60s) ── */
+  .cd-centis {
+    font-size: clamp(12px, 2vw, 26px);
+    letter-spacing: .18em;
+    color: rgba(50, 68, 105, 0.38);
+    margin-top: clamp(4px, .8vw, 10px);
+    min-height: 1.4em;
+    transition: opacity .2s ease;
+  }
+  .cd-centis.hidden { opacity: 0; }
+
+  /* ── Controls ── */
+  .cd-controls {
+    display: flex;
+    gap: clamp(8px, 1.6vw, 18px);
+    margin-top: clamp(12px, 2vw, 26px);
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  /* ── Toggles row ── */
+  .cd-toggles {
+    display: flex;
+    gap: clamp(10px, 2vw, 24px);
+    margin-top: clamp(10px, 1.6vw, 20px);
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .cd-toggle-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+  }
+  .cd-toggle-label {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(10px, 1.2vw, 14px);
+    letter-spacing: .16em;
+    color: rgba(60,78,115,.48);
+    text-transform: uppercase;
+    user-select: none;
+  }
+
+  /* pill toggle switch */
+  .cd-switch {
+    position: relative;
+    width: 34px; height: 18px;
+    flex-shrink: 0;
+  }
+  .cd-switch input { opacity:0; width:0; height:0; position:absolute; }
+  .cd-switch-track {
+    position: absolute; inset: 0;
+    background: rgba(80,100,150,.18);
+    border-radius: 9px;
+    transition: background .2s ease;
+    cursor: pointer;
+  }
+  .cd-switch-track::after {
+    content:'';
+    position: absolute;
+    left: 3px; top: 3px;
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: rgba(70,90,140,.5);
+    transition: transform .2s ease, background .2s ease;
+  }
+  .cd-switch input:checked + .cd-switch-track {
+    background: rgba(70,95,155,.35);
+  }
+  .cd-switch input:checked + .cd-switch-track::after {
+    transform: translateX(16px);
+    background: rgba(55,80,145,.8);
+  }
+
+  /* ══════════════════════════════════════════
+     FLIP CARD — shared by all views
+     
+     Architecture: 2-phase animation, NO preserve-3d on clipped elements.
+     
+     Each .card has 4 layers (bottom→top):
+       1. .card-bot   — static, shows bottom-half of CURRENT digit
+       2. .card-top   — static, shows top-half of NEXT digit (hidden under flap)
+       3. .fold-down  — animated top-half of OLD digit, rotates from 0→-90deg
+                        (disappears at 90deg, nothing visible at midpoint)
+       4. .fold-up    — animated bottom-half of NEW digit, starts at 90deg
+                        rotates from 90→0deg (appears from midpoint onward)
+     
+     Two separate animations chained at the halfway point means we never
+     need preserve-3d on elements with overflow:hidden, eliminating the bug.
+  ══════════════════════════════════════════ */
+  .clock { display:flex; align-items:center; gap:var(--gap); }
+  .group { display:flex; gap:calc(var(--gap) * .5); }
+  .digit-wrapper { display:flex; flex-direction:column; align-items:center; }
+
+  /* Card shell — clips everything to card bounds */
+  .card {
+    width: var(--w); height: var(--h);
+    position: relative;
+  }
+
+  /* ── Static panels ── */
+  /* Both panels are absolutely positioned half-height slabs */
+  .card-top, .card-bot {
+    position: absolute; left:0; right:0;
+    width: var(--w); height: var(--half);
+    overflow: hidden;
+  }
+  .card-top {
+    top: 0;
+    border-radius: var(--r) var(--r) 0 0;
+    background: linear-gradient(170deg, #e0e6f2 0%, #d2daea 100%);
+    z-index: 1;
+  }
+  .card-bot {
+    bottom: 0;
+    border-radius: 0 0 var(--r) var(--r);
+    background: linear-gradient(170deg, #c8d4e4 0%, #d4ddf0 100%);
+    z-index: 1;
+  }
+
+  /* crease line */
+  .card::after {
+    content: ''; position: absolute; left:0; right:0;
+    top: calc(var(--half) - 1px); height: 2px;
+    background: linear-gradient(90deg,
+      rgba(80,100,150,0) 0%,
+      rgba(80,100,150,.22) 20%,
+      rgba(80,100,150,.22) 80%,
+      rgba(80,100,150,0) 100%);
+    z-index: 10; pointer-events:none;
+  }
+
+  /* ── Number positioning inside any clipped half ──
+     Every .num is the FULL digit height, positioned so the
+     correct half peeks out through the overflow:hidden clip.  */
+  .num {
+    position: absolute; left:0; right:0; width:100%;
+    font-size: var(--fs); line-height: 1; text-align: center;
+    color: rgba(40,52,75,.86);
+    user-select: none; pointer-events: none;
+  }
+  /* top panel: anchor num to top → upper half of glyph visible */
+  .card-top .num { top: 0; }
+  /* bot panel: push num up so lower half of glyph aligns with panel */
+  .card-bot .num { top: calc(-1 * var(--half)); }
+
+  /* ── Animated flaps ── */
+  /* Both flaps are positioned over the TOP half of the card.
+     fold-down covers the old top → rotates away (0 → -90deg, disappears at edge-on)
+     fold-up   covers the new bottom → starts edge-on (90deg) → rotates to flat (0deg) */
+
+  .fold-down, .fold-up {
+    position: absolute; left:0; right:0;
+    width: var(--w); height: var(--half);
+    overflow: hidden;
+    transform-origin: bottom center;
+    /* No preserve-3d here — these are flat 2D flaps */
+  }
+
+  /* fold-down: sits on top half, shows old digit's top */
+  .fold-down {
+    top: 0;
+    border-radius: var(--r) var(--r) 0 0;
+    background: linear-gradient(170deg, #e0e6f2 0%, #d2daea 100%);
+    z-index: 4; /* above static panels */
+  }
+  .fold-down .num { top: 0; } /* upper half of old digit */
+
+  /* fold-up: also covers bottom half visually but is positioned at top
+     (so transform-origin bottom = crease line). We use a negative translateY
+     to slide its content so the LOWER half of the new digit is visible.
+     When it rotates 0deg it lies flat over card-bot. */
+  .fold-up {
+    top: var(--half); /* starts at the crease, covering card-bot */
+    border-radius: 0 0 var(--r) var(--r);
+    background: linear-gradient(170deg, #c8d4e4 0%, #d4ddf0 100%);
+    transform-origin: top center; /* rotates from crease downward */
+    z-index: 3;
+  }
+  .fold-up .num { top: calc(-1 * var(--half)); } /* lower half of new digit */
+
+  /* ── Animations ── */
+  /* fold-down rotates from flat → edge-on (disappears at 90deg) */
+  .fold-down.go {
+    animation: fold-away calc(var(--dur) / 2) cubic-bezier(.4, 0, 1, 1) forwards;
+  }
+  @keyframes fold-away {
+    0%   { transform: rotateX(0deg); }
+    100% { transform: rotateX(-90deg); }
+  }
+
+  /* fold-up starts edge-on and rotates to flat — delayed by half duration */
+  .fold-up.go {
+    transform: rotateX(90deg); /* pre-set: starts invisible (edge-on) */
+    animation: fold-arrive calc(var(--dur) / 2) cubic-bezier(0, 0, .6, 1)
+               calc(var(--dur) / 2) forwards;
+  }
+  @keyframes fold-arrive {
+    0%   { transform: rotateX(90deg); }
+    100% { transform: rotateX(0deg); }
+  }
+
+  /* ── Fold shadows ── */
+  .fold-down::after, .fold-up::after {
+    content:''; position:absolute; inset:0;
+    border-radius: inherit; pointer-events:none; opacity:0;
+  }
+  .fold-down::after { background: linear-gradient(to bottom, transparent 20%, rgba(0,0,0,.22) 100%); }
+  .fold-up::after   { background: linear-gradient(to top,    transparent 20%, rgba(0,0,0,.18) 100%); }
+  .fold-down.go::after { animation: sh-down calc(var(--dur) / 2) ease-in forwards; }
+  .fold-up.go::after   {
+    animation: sh-up calc(var(--dur) / 2) ease-out calc(var(--dur) / 2) forwards;
+  }
+  @keyframes sh-down { 0%{opacity:0} 80%{opacity:1} 100%{opacity:1} }
+  @keyframes sh-up   { 0%{opacity:1} 100%{opacity:0} }
+
+  .colon { display:flex; flex-direction:column; gap: calc(var(--h)*.13); margin-bottom:2px; }
+  .colon span {
+    width:clamp(4px,.8vw,9px); height:clamp(4px,.8vw,9px);
+    border-radius:50%; background:rgba(90,115,155,.28);
+    box-shadow:0 1px 3px rgba(60,80,120,.12); display:block;
+  }
+
+  /* ══════════════════════════════════════════
+     BURGER
+  ══════════════════════════════════════════ */
+  .burger {
+    position: fixed; top: clamp(14px,3vw,28px); left: clamp(14px,3vw,28px);
+    width:40px; height:40px; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:6px;
+    cursor:pointer; z-index:200; padding:6px;
+    background:none; border:none; outline:none;
+  }
+  .burger span {
+    display:block; width:22px; height:1.5px;
+    background:rgba(70,90,130,.35); border-radius:2px;
+    transition: transform 300ms cubic-bezier(.4,0,.2,1), opacity 300ms ease, width 300ms ease;
+    transform-origin: center;
+  }
+  .burger:hover span { background:rgba(70,90,130,.58); }
+  .burger.open span:nth-child(1) { transform: translateY(7.5px) rotate(45deg); }
+  .burger.open span:nth-child(2) { opacity:0; width:0; }
+  .burger.open span:nth-child(3) { transform: translateY(-7.5px) rotate(-45deg); }
+
+  .overlay { position:fixed; inset:0; z-index:100; pointer-events:none; }
+  .overlay.open { pointer-events:all; }
+
+  .sidebar {
+    position:fixed; top:0; left:0; width:240px; height:100%;
+    background:none; transform:translateX(-100%);
+    transition: transform 320ms cubic-bezier(.4,0,.2,1);
+    z-index:150; display:flex; flex-direction:column;
+    padding-top: clamp(70px,12vw,100px);
+  }
+  .sidebar.open { transform:translateX(0); }
+  .sidebar-title {
+    font-size:clamp(9px,1.3vw,13px); letter-spacing:.28em;
+    color:rgba(80,100,140,.38); text-transform:uppercase; padding:0 28px 18px;
+  }
+  .nav-item {
+    display:flex; align-items:center; padding:14px 28px;
+    cursor:pointer; border-left:2px solid transparent; transition:opacity 180ms ease;
+  }
+  .nav-item:hover { opacity:.7; }
+  .nav-item.active { border-left-color:rgba(80,105,165,.38); }
+  .nav-label {
+    font-size:clamp(12px,1.6vw,16px); letter-spacing:.1em;
+    color:rgba(50,68,105,.52); text-transform:uppercase;
+  }
+  .nav-item.active .nav-label { color:rgba(50,68,105,.88); }
+
+  .date-display {
+    margin-top:clamp(14px,2.5vw,34px); font-size:clamp(8px,1.3vw,17px);
+    letter-spacing:.28em; color:rgba(70,90,130,.32); text-transform:uppercase;
+  }
+</style>
+</head>
+<body>
+
+<button class="burger" id="burger" aria-label="Menu">
+  <span></span><span></span><span></span>
+</button>
+<div class="overlay" id="overlay"></div>
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-title">Menu</div>
+  <nav>
+    <div class="nav-item active" data-view="time"><span class="nav-label">General Time</span></div>
+    <div class="nav-item" data-view="stopwatch"><span class="nav-label">Stopwatch</span></div>
+    <div class="nav-item" data-view="countdown"><span class="nav-label">Countdown</span></div>
+    <div class="nav-item" data-view="split"><span class="nav-label">Split Watch</span></div>
+  </nav>
+</aside>
+
+<!-- ═══════════════════════════════════
+     VIEW: GENERAL TIME
+════════════════════════════════════ -->
+<div class="view active" id="view-time">
+  <div class="clock" id="clock-time">
+    <div class="group">
+      <div class="digit-wrapper"><div class="card" id="t-h0"></div></div>
+      <div class="digit-wrapper"><div class="card" id="t-h1"></div></div>
+    </div>
+    <div class="colon"><span></span><span></span></div>
+    <div class="group">
+      <div class="digit-wrapper"><div class="card" id="t-m0"></div></div>
+      <div class="digit-wrapper"><div class="card" id="t-m1"></div></div>
+    </div>
+    <div class="colon"><span></span><span></span></div>
+    <div class="group">
+      <div class="digit-wrapper"><div class="card" id="t-s0"></div></div>
+      <div class="digit-wrapper"><div class="card" id="t-s1"></div></div>
+    </div>
+  </div>
+  <div class="date-display" id="date"></div>
+</div>
+
+<!-- ═══════════════════════════════════
+     VIEW: STOPWATCH
+════════════════════════════════════ -->
+<div class="view" id="view-stopwatch">
+  <!-- Main flip clock (HH:MM:SS) -->
+  <div class="clock" id="clock-sw">
+    <div class="group">
+      <div class="digit-wrapper"><div class="card" id="sw-h0"></div></div>
+      <div class="digit-wrapper"><div class="card" id="sw-h1"></div></div>
+    </div>
+    <div class="colon"><span></span><span></span></div>
+    <div class="group">
+      <div class="digit-wrapper"><div class="card" id="sw-m0"></div></div>
+      <div class="digit-wrapper"><div class="card" id="sw-m1"></div></div>
+    </div>
+    <div class="colon"><span></span><span></span></div>
+    <div class="group">
+      <div class="digit-wrapper"><div class="card" id="sw-s0"></div></div>
+      <div class="digit-wrapper"><div class="card" id="sw-s1"></div></div>
+    </div>
+  </div>
+
+  <!-- Milliseconds -->
+  <div class="sw-ms" id="sw-ms">.00</div>
+
+  <!-- Controls -->
+  <div class="sw-controls">
+    <button class="sw-btn sw-btn-secondary" id="sw-reset" disabled>Reset</button>
+    <button class="sw-btn sw-btn-primary"   id="sw-start">Start</button>
+    <button class="sw-btn sw-btn-secondary" id="sw-stop"  disabled>Stop</button>
+    <button class="sw-btn sw-btn-accent"    id="sw-lap"   disabled>Lap</button>
+    <button class="sw-btn sw-btn-accent"    id="sw-split" disabled>Split</button>
+  </div>
+
+  <!-- Lap / Split table -->
+  <div class="sw-table-wrap">
+    <table class="sw-table" id="sw-table">
+      <thead>
+        <tr>
+          <th class="col-type">Type</th>
+          <th class="col-num">#</th>
+          <th class="col-lap">Lap Time</th>
+          <th class="col-split">Split Time</th>
+        </tr>
+      </thead>
+      <tbody id="sw-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════
+     VIEW: COUNTDOWN
+════════════════════════════════════ -->
+<div class="view" id="view-countdown">
+
+  <!-- Flip clock display -->
+  <div class="clock" id="clock-cd">
+    <div class="group">
+      <div class="digit-wrapper"><div class="card" id="cd-h0"></div></div>
+      <div class="digit-wrapper"><div class="card" id="cd-h1"></div></div>
+    </div>
+    <div class="colon"><span></span><span></span></div>
+    <div class="group">
+      <div class="digit-wrapper"><div class="card" id="cd-m0"></div></div>
+      <div class="digit-wrapper"><div class="card" id="cd-m1"></div></div>
+    </div>
+    <div class="colon"><span></span><span></span></div>
+    <div class="group">
+      <div class="digit-wrapper"><div class="card" id="cd-s0"></div></div>
+      <div class="digit-wrapper"><div class="card" id="cd-s1"></div></div>
+    </div>
+  </div>
+
+  <!-- Sub-second (shown when < 60s remaining) -->
+  <div class="cd-centis hidden" id="cd-centis">.00</div>
+
+  <!-- Progress ring -->
+  <div class="cd-ring-wrap" id="cd-ring-wrap">
+    <svg class="cd-ring-svg" id="cd-ring-svg" width="0" height="0" viewBox="0 0 100 100">
+      <circle class="cd-ring-bg"   cx="50" cy="50" r="44"/>
+      <circle class="cd-ring-prog" id="cd-ring-prog" cx="50" cy="50" r="44"/>
+    </svg>
+  </div>
+
+  <!-- Input panel -->
+  <div class="cd-input-panel" id="cd-input-panel">
+    <!-- Quick presets -->
+    <div class="cd-presets">
+      <button class="cd-preset" data-sec="60">+1 min</button>
+      <button class="cd-preset" data-sec="300">+5 min</button>
+      <button class="cd-preset" data-sec="600">+10 min</button>
+      <button class="cd-preset" data-sec="1800">+30 min</button>
+      <button class="cd-preset" data-sec="3600">+1 hr</button>
+    </div>
+
+    <!-- Manual setter HH : MM : SS -->
+    <div class="cd-setter">
+      <div class="cd-field-group">
+        <div class="cd-spinners">
+          <button class="cd-spin-btn" data-field="cd-inp-h" data-delta="1">▲</button>
+          <input class="cd-field" id="cd-inp-h" type="number" min="0" max="23" value="0">
+          <button class="cd-spin-btn" data-field="cd-inp-h" data-delta="-1">▼</button>
+        </div>
+        <div class="cd-field-label">Hours</div>
+      </div>
+      <div class="cd-colon-sep">:</div>
+      <div class="cd-field-group">
+        <div class="cd-spinners">
+          <button class="cd-spin-btn" data-field="cd-inp-m" data-delta="1">▲</button>
+          <input class="cd-field" id="cd-inp-m" type="number" min="0" max="59" value="0">
+          <button class="cd-spin-btn" data-field="cd-inp-m" data-delta="-1">▼</button>
+        </div>
+        <div class="cd-field-label">Min</div>
+      </div>
+      <div class="cd-colon-sep">:</div>
+      <div class="cd-field-group">
+        <div class="cd-spinners">
+          <button class="cd-spin-btn" data-field="cd-inp-s" data-delta="1">▲</button>
+          <input class="cd-field" id="cd-inp-s" type="number" min="0" max="59" value="0">
+          <button class="cd-spin-btn" data-field="cd-inp-s" data-delta="-1">▼</button>
+        </div>
+        <div class="cd-field-label">Sec</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- State controls -->
+  <div class="cd-controls">
+    <button class="sw-btn sw-btn-secondary" id="cd-reset">Reset</button>
+    <button class="sw-btn sw-btn-primary"   id="cd-start" disabled>Start</button>
+    <button class="sw-btn sw-btn-secondary" id="cd-pause" disabled>Pause</button>
+  </div>
+
+  <!-- Toggles: audio · loop -->
+  <div class="cd-toggles">
+    <label class="cd-toggle-item">
+      <span class="cd-toggle-label">Sound</span>
+      <div class="cd-switch">
+        <input type="checkbox" id="cd-sound" checked>
+        <div class="cd-switch-track"></div>
+      </div>
+    </label>
+    <label class="cd-toggle-item">
+      <span class="cd-toggle-label">Loop</span>
+      <div class="cd-switch">
+        <input type="checkbox" id="cd-loop">
+        <div class="cd-switch-track"></div>
+      </div>
+    </label>
+    <label class="cd-toggle-item">
+      <span class="cd-toggle-label">Pre-alert 10s</span>
+      <div class="cd-switch">
+        <input type="checkbox" id="cd-prealert" checked>
+        <div class="cd-switch-track"></div>
+      </div>
+    </label>
+  </div>
+
+</div>
+
+<script>
+  /* ══════════════════════════════════════════
+     FLIP CARD ENGINE
+     
+     DOM per card:
+       .card-top  — static top half, shows CURRENT digit top
+       .card-bot  — static bot half, shows CURRENT digit bottom
+       .fold-down — animated: old top rotates away (0 → -90deg)
+       .fold-up   — animated: new bottom rotates in (90deg → 0)
+  ══════════════════════════════════════════ */
+  function buildCard(el, v) {
+    el.innerHTML = `
+      <div class="card-top"><div class="num">${v}</div></div>
+      <div class="card-bot"><div class="num">${v}</div></div>
+      <div class="fold-down"><div class="num">${v}</div></div>
+      <div class="fold-up"><div class="num">${v}</div></div>`;
+    el._v = v; el._busy = false;
+  }
+
+  function flipCard(el, next) {
+    if (!el || el._v === next || el._busy) return;
+    const prev = el._v;
+    el._v = next;
+    el._busy = true;
+
+    const topNum  = el.querySelector('.card-top .num');
+    const botNum  = el.querySelector('.card-bot .num');
+    const fdEl    = el.querySelector('.fold-down');
+    const fuEl    = el.querySelector('.fold-up');
+    const fdNum   = fdEl.querySelector('.num');
+    const fuNum   = fuEl.querySelector('.num');
+
+    // Static panels: top immediately shows next, bot will update after animation
+    topNum.textContent = next;
+    botNum.textContent = prev;   // stays visible under fold-up until it lands
+
+    // fold-down carries OLD digit top (rotates away revealing new top underneath)
+    fdNum.textContent = prev;
+    // fold-up carries NEW digit bottom (swings in over old bot)
+    fuNum.textContent = next;
+
+    // Reset animation state
+    fdEl.classList.remove('go');
+    fuEl.classList.remove('go');
+    void fdEl.offsetWidth; // reflow
+
+    fdEl.classList.add('go');
+    fuEl.classList.add('go');
+
+    // After both halves complete (full duration), clean up
+    setTimeout(() => {
+      fdEl.classList.remove('go');
+      fuEl.classList.remove('go');
+      // Reset fold-up back to flat without animation
+      fuEl.style.transform = '';
+      botNum.textContent = next;
+      fdNum.textContent  = next;
+      fuNum.textContent  = next;
+      el._busy = false;
+    }, parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--dur')) || 360);
+  }
+
+  /* ── Init all cards ── */
+  const timeIds = ['t-h0','t-h1','t-m0','t-m1','t-s0','t-s1'];
+  const swIds   = ['sw-h0','sw-h1','sw-m0','sw-m1','sw-s0','sw-s1'];
+  const cdIds   = ['cd-h0','cd-h1','cd-m0','cd-m1','cd-s0','cd-s1'];
+  [...timeIds, ...swIds, ...cdIds].forEach(id => buildCard(document.getElementById(id), '0'));
+
+  function setCards(ids, digits) {
+    ids.forEach((id, i) => flipCard(document.getElementById(id), digits[i]));
+  }
+
+  /* ══════════════════════════════════════════
+     SIZING
+  ══════════════════════════════════════════ */
+  const SIDEBAR_W = 240, PAD = 30;
+  let sidebarOpen = false, currentView = 'time';
+
+  function resize() {
+    const availW = window.innerWidth - (sidebarOpen ? SIDEBAR_W : 0);
+    const availH = window.innerHeight;
+    const hRes   = (currentView === 'stopwatch') ? 220
+                 : (currentView === 'countdown') ? 310 : 40;
+    const topPad = (currentView === 'stopwatch' || currentView === 'countdown') ? 52 : 0;
+
+    let w = Math.floor((availW - PAD * 2) / 6.7);
+    const maxH = Math.floor((availH - PAD * 2 - hRes - topPad) / 1.3);
+    w = Math.min(w, maxH);
+    w = Math.max(w, 36);
+
+    const h = Math.round(w * 1.3);
+    const gap = Math.max(4, Math.round(w * 0.08));
+    const r = Math.max(4, Math.round(w * 0.09));
+    const root = document.documentElement;
+    root.style.setProperty('--w',    w + 'px');
+    root.style.setProperty('--h',    h + 'px');
+    root.style.setProperty('--half', (h/2) + 'px');
+    root.style.setProperty('--gap',  gap + 'px');
+    root.style.setProperty('--r',    r + 'px');
+    root.style.setProperty('--fs',   (h * 1.05) + 'px');
+
+    // Size the progress ring to match clock width
+    if (currentView === 'countdown') cdSizeRing();
+  }
+  window.addEventListener('resize', resize);
+
+  /* ══════════════════════════════════════════
+     GENERAL TIME
+  ══════════════════════════════════════════ */
+  const DAYS   = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const pad2 = n => String(n).padStart(2,'0');
+
+  function tickTime() {
+    const t = new Date();
+    const hh = pad2(t.getHours()), mm = pad2(t.getMinutes()), ss = pad2(t.getSeconds());
+    setCards(timeIds, [hh[0],hh[1],mm[0],mm[1],ss[0],ss[1]]);
+    document.getElementById('date').textContent =
+      `${DAYS[t.getDay()]} · ${MONTHS[t.getMonth()]} ${t.getDate()}, ${t.getFullYear()}`;
+  }
+  tickTime();
+  setTimeout(() => { tickTime(); setInterval(tickTime, 1000); }, 1000 - new Date().getMilliseconds());
+
+  /* ══════════════════════════════════════════
+     STOPWATCH ENGINE
+  ══════════════════════════════════════════ */
+  let swRunning  = false;
+  let swStart    = 0;       // timestamp when last started
+  let swElapsed  = 0;       // total ms accumulated before last start
+  let swLapStart = 0;       // elapsed ms at the start of current lap
+  let swRAF      = null;
+  let swLastSec  = -1;      // last second rendered on flip clock
+  let lapCount   = 0;
+  let splitCount = 0;
+
+  const swMsEl   = document.getElementById('sw-ms');
+  const swTbody  = document.getElementById('sw-tbody');
+  const btnStart = document.getElementById('sw-start');
+  const btnStop  = document.getElementById('sw-stop');
+  const btnReset = document.getElementById('sw-reset');
+  const btnLap   = document.getElementById('sw-lap');
+  const btnSplit = document.getElementById('sw-split');
+
+  function swTotalMs() {
+    return swRunning ? swElapsed + (performance.now() - swStart) : swElapsed;
+  }
+
+  function formatMs(ms) {
+    const totalSec = Math.floor(ms / 1000);
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    return [pad2(h), pad2(m), pad2(s)];
+  }
+
+  function swRender() {
+    const total = swTotalMs();
+    const [h,m,s] = formatMs(total);
+    const centis = Math.floor((total % 1000) / 10);
+    const digits = [h[0],h[1],m[0],m[1],s[0],s[1]];
+    const sec = Math.floor(total / 1000);
+
+    // Only flip cards on second change
+    if (sec !== swLastSec) {
+      swLastSec = sec;
+      setCards(swIds, digits);
+    }
+
+    // Milliseconds always live
+    swMsEl.textContent = '.' + pad2(centis);
+
+    if (swRunning) swRAF = requestAnimationFrame(swRender);
+  }
+
+  function swUpdateButtons() {
+    const hasTime = swElapsed > 0 || swRunning;
+    btnStart.textContent = swRunning ? 'Pause' : (swElapsed > 0 ? 'Resume' : 'Start');
+    btnStop.disabled  = !swRunning;
+    btnReset.disabled = !hasTime || swRunning;
+    btnLap.disabled   = !swRunning;
+    btnSplit.disabled = !swRunning;
+  }
+
+  btnStart.addEventListener('click', () => {
+    if (swRunning) {
+      // Pause
+      swElapsed += performance.now() - swStart;
+      swRunning = false;
+      cancelAnimationFrame(swRAF);
+    } else {
+      // Start / Resume
+      swStart = performance.now();
+      if (swLapStart === 0 && swElapsed === 0) swLapStart = 0;
+      swRunning = true;
+      swRAF = requestAnimationFrame(swRender);
+    }
+    swUpdateButtons();
+  });
+
+  btnStop.addEventListener('click', () => {
+    swElapsed += performance.now() - swStart;
+    swRunning = false;
+    cancelAnimationFrame(swRAF);
+    swUpdateButtons();
+  });
+
+  btnReset.addEventListener('click', () => {
+    swRunning = false;
+    cancelAnimationFrame(swRAF);
+    swElapsed = 0; swStart = 0; swLapStart = 0;
+    swLastSec = -1; lapCount = 0; splitCount = 0;
+    // Hard reset all stopwatch cards to '0' without animation
+    swIds.forEach(id => {
+      const el = document.getElementById(id);
+      el._v = '0'; el._busy = false;
+      el.querySelectorAll('.num').forEach(n => n.textContent = '0');
+      el.querySelector('.fold-down').classList.remove('go');
+      el.querySelector('.fold-up').classList.remove('go');
+    });
+    swMsEl.textContent = '.00';
+    swTbody.innerHTML = '';
+    swUpdateButtons();
+  });
+
+  btnLap.addEventListener('click', () => {
+    const total = swTotalMs();
+    const lapTime = total - swLapStart;
+    lapCount++;
+    swLapStart = total;
+
+    const [lh,lm,ls] = formatMs(lapTime);
+    const [th,tm,ts] = formatMs(total);
+    const lcent = pad2(Math.floor((lapTime % 1000)/10));
+    const tcent = pad2(Math.floor((total  % 1000)/10));
+
+    const row = document.createElement('tr');
+    row.innerHTML = `
+      <td class="col-type">Lap</td>
+      <td class="col-num">${lapCount}</td>
+      <td class="col-lap highlight">${lh}:${lm}:${ls}.${lcent}</td>
+      <td class="col-split">${th}:${tm}:${ts}.${tcent}</td>`;
+    swTbody.prepend(row);
+  });
+
+  btnSplit.addEventListener('click', () => {
+    const total = swTotalMs();
+    splitCount++;
+    const [th,tm,ts] = formatMs(total);
+    const tcent = pad2(Math.floor((total % 1000)/10));
+
+    const row = document.createElement('tr');
+    row.innerHTML = `
+      <td class="col-type">Split</td>
+      <td class="col-num">${splitCount}</td>
+      <td class="col-lap">—</td>
+      <td class="col-split highlight">${th}:${tm}:${ts}.${tcent}</td>`;
+    swTbody.prepend(row);
+  });
+
+  swUpdateButtons();
+
+  swUpdateButtons();
+
+  /* ══════════════════════════════════════════
+     COUNTDOWN ENGINE
+  ══════════════════════════════════════════ */
+  let cdRunning    = false;
+  let cdTotalMs    = 0;
+  let cdRemaining  = 0;
+  let cdLastTick   = 0;
+  let cdRAF        = null;
+  let cdLastSec    = -1;
+  let cdPreAlerted = false;
+  let cdDone       = false;
+
+  const cdCentisEl = document.getElementById('cd-centis');
+  const cdRingProg = document.getElementById('cd-ring-prog');
+  const cdRingSvg  = document.getElementById('cd-ring-svg');
+  const cdStartBtn = document.getElementById('cd-start');
+  const cdPauseBtn = document.getElementById('cd-pause');
+  const cdResetBtn = document.getElementById('cd-reset');
+  const cdSoundChk = document.getElementById('cd-sound');
+  const cdLoopChk  = document.getElementById('cd-loop');
+  const cdPreAlChk = document.getElementById('cd-prealert');
+  const cdInpH     = document.getElementById('cd-inp-h');
+  const cdInpM     = document.getElementById('cd-inp-m');
+  const cdInpS     = document.getElementById('cd-inp-s');
+
+  const RING_R    = 44;
+  const RING_CIRC = 2 * Math.PI * RING_R;
+
+  function cdSizeRing() {
+    const clockEl = document.getElementById('clock-cd');
+    const cw = clockEl ? clockEl.getBoundingClientRect().width : 200;
+    const size = Math.max(56, Math.min(cw * 0.36, 110));
+    cdRingSvg.setAttribute('width', size);
+    cdRingSvg.setAttribute('height', size);
+  }
+
+  function cdBeep(freq, duration, vol) {
+    if (!cdSoundChk.checked) return;
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(vol, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+      osc.start(); osc.stop(ctx.currentTime + duration);
+    } catch(e) {}
+  }
+
+  function cdAlarm() {
+    cdBeep(660, 0.14, 0.4);
+    setTimeout(() => cdBeep(880, 0.14, 0.4), 180);
+    setTimeout(() => cdBeep(1100, 0.28, 0.5), 360);
+  }
+
+  function cdInputMs() {
+    return ((parseInt(cdInpH.value)||0)*3600
+          + (parseInt(cdInpM.value)||0)*60
+          + (parseInt(cdInpS.value)||0)) * 1000;
+  }
+
+  function cdUpdateRing(rem, total) {
+    if (total <= 0) { cdRingProg.style.strokeDashoffset = 0; return; }
+    const frac   = Math.max(0, rem / total);
+    const offset = RING_CIRC * (1 - frac);
+    cdRingProg.style.strokeDasharray  = RING_CIRC;
+    cdRingProg.style.strokeDashoffset = offset;
+    cdRingProg.classList.toggle('warning', rem <= 10000 && rem > 0);
+    cdRingProg.classList.toggle('done',    rem <= 0);
+  }
+
+  function cdRenderDisplay(rem) {
+    const totalSec = Math.ceil(rem / 1000);
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    const sec = Math.floor(rem / 1000);
+    if (sec !== cdLastSec) {
+      cdLastSec = sec;
+      const hh = pad2(h), mm = pad2(m), ss = pad2(s);
+      setCards(cdIds, [hh[0],hh[1],mm[0],mm[1],ss[0],ss[1]]);
+    }
+    if (rem < 60000 && rem > 0) {
+      cdCentisEl.textContent = '.' + pad2(Math.floor((rem % 1000) / 10));
+      cdCentisEl.classList.remove('hidden');
+    } else {
+      cdCentisEl.classList.add('hidden');
+    }
+  }
+
+  function cdFrame(now) {
+    if (!cdRunning) return;
+    cdRemaining = Math.max(0, cdRemaining - (now - cdLastTick));
+    cdLastTick  = now;
+    cdRenderDisplay(cdRemaining);
+    cdUpdateRing(cdRemaining, cdTotalMs);
+
+    if (cdPreAlChk.checked && !cdPreAlerted && cdRemaining <= 10000 && cdRemaining > 9800) {
+      cdPreAlerted = true;
+      cdBeep(660, 0.12, 0.3);
+    }
+
+    if (cdRemaining <= 0) {
+      cdRunning = false; cdDone = true;
+      cdAlarm(); cdUpdateButtons();
+      if (cdLoopChk.checked) {
+        setTimeout(() => {
+          cdRemaining = cdTotalMs; cdPreAlerted = false; cdDone = false; cdLastSec = -1;
+          cdLastTick = performance.now(); cdRunning = true;
+          cdUpdateButtons(); cdRAF = requestAnimationFrame(cdFrame);
+        }, 1200);
+      }
+      return;
+    }
+    cdRAF = requestAnimationFrame(cdFrame);
+  }
+
+  function cdShowInput(show) {
+    document.getElementById('cd-input-panel').style.display = show ? 'flex' : 'none';
+  }
+
+  function cdUpdateButtons() {
+    const hasInput = cdInputMs() > 0 || cdTotalMs > 0;
+    cdStartBtn.disabled = !hasInput || cdRunning;
+    cdPauseBtn.disabled = !cdRunning;
+    cdResetBtn.disabled = cdTotalMs === 0 && cdRemaining === 0;
+    cdShowInput(cdTotalMs === 0 && !cdRunning);
+  }
+
+  function cdHardReset(ids) {
+    ids.forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el._v = '0'; el._busy = false;
+      el.querySelectorAll('.num').forEach(n => n.textContent = '0');
+      el.querySelector('.fold-down').classList.remove('go');
+      el.querySelector('.fold-up').classList.remove('go');
+    });
+  }
+
+  cdStartBtn.addEventListener('click', () => {
+    if (cdTotalMs === 0) {
+      cdTotalMs   = cdInputMs();
+      if (cdTotalMs <= 0) return;
+      cdRemaining = cdTotalMs;
+      cdLastSec   = -1;
+      cdRingProg.style.strokeDasharray  = RING_CIRC;
+      cdRingProg.style.strokeDashoffset = 0;
+    }
+    cdDone = false; cdPreAlerted = false; cdRunning = true;
+    cdLastTick = performance.now();
+    cdRAF = requestAnimationFrame(cdFrame);
+    cdUpdateButtons();
+  });
+
+  cdPauseBtn.addEventListener('click', () => {
+    cdRunning = false; cancelAnimationFrame(cdRAF); cdUpdateButtons();
+  });
+
+  cdResetBtn.addEventListener('click', () => {
+    cdRunning = false; cdDone = false; cancelAnimationFrame(cdRAF);
+    cdTotalMs = 0; cdRemaining = 0; cdLastSec = -1; cdPreAlerted = false;
+    cdHardReset(cdIds);
+    cdCentisEl.classList.add('hidden');
+    cdRingProg.style.strokeDashoffset = 0;
+    cdRingProg.classList.remove('warning','done');
+    cdInpH.value = 0; cdInpM.value = 0; cdInpS.value = 0;
+    cdUpdateButtons();
+  });
+
+  document.querySelectorAll('.cd-preset').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const addMs = parseInt(btn.dataset.sec) * 1000;
+      if (cdTotalMs > 0) {
+        cdTotalMs += addMs; cdRemaining += addMs;
+        cdUpdateRing(cdRemaining, cdTotalMs);
+        cdRenderDisplay(cdRemaining);
+      } else {
+        let total = cdInputMs() / 1000 + parseInt(btn.dataset.sec);
+        total = Math.min(total, 359999);
+        cdInpH.value = Math.floor(total / 3600);
+        cdInpM.value = Math.floor((total % 3600) / 60);
+        cdInpS.value = total % 60;
+        cdUpdateButtons();
+      }
+    });
+  });
+
+  document.querySelectorAll('.cd-spin-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const field = document.getElementById(btn.dataset.field);
+      const max = parseInt(field.max);
+      let val = (parseInt(field.value)||0) + parseInt(btn.dataset.delta);
+      if (val < 0) val = max;
+      if (val > max) val = 0;
+      field.value = val; cdUpdateButtons();
+    });
+  });
+
+  [cdInpH, cdInpM, cdInpS].forEach(inp => inp.addEventListener('input', cdUpdateButtons));
+  setTimeout(cdSizeRing, 120);
+  cdUpdateButtons();
+  function switchView(name) {
+    currentView = name;
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    const target = document.getElementById('view-' + name);
+    if (target) target.classList.add('active');
+    // sync left offset on all views
+    document.querySelectorAll('.view').forEach(v => {
+      v.style.left = (sidebarOpen ? SIDEBAR_W : 0) + 'px';
+    });
+    resize();
+  }
+
+  /* ══════════════════════════════════════════
+     SIDEBAR
+  ══════════════════════════════════════════ */
+  const burgerEl  = document.getElementById('burger');
+  const sidebarEl = document.getElementById('sidebar');
+  const overlayEl = document.getElementById('overlay');
+
+  function toggleSidebar(open) {
+    sidebarOpen = open;
+    burgerEl.classList.toggle('open', open);
+    sidebarEl.classList.toggle('open', open);
+    overlayEl.classList.toggle('open', open);
+    document.documentElement.style.setProperty('--sidebar-w', open ? SIDEBAR_W + 'px' : '0px');
+    document.querySelectorAll('.view').forEach(v => {
+      v.style.left = (open ? SIDEBAR_W : 0) + 'px';
+    });
+    resize();
+  }
+
+  burgerEl.addEventListener('click', () => toggleSidebar(!sidebarOpen));
+  overlayEl.addEventListener('click', () => toggleSidebar(false));
+
+  document.querySelectorAll('.nav-item').forEach(item => {
+    item.addEventListener('click', () => {
+      document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+      item.classList.add('active');
+      toggleSidebar(false);
+      switchView(item.dataset.view);
+    });
+  });
+
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') toggleSidebar(false); });
+
+  resize();
+</script>
+</body>
+</html>
